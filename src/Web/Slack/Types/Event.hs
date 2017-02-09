@@ -93,6 +93,7 @@ data Event where
   PinAdded :: Event
   PinRemoved :: Event
   NoEvent :: Event
+  DesktopNotification :: Text {- title -} -> Text {- subtitle -}-> ChannelId -> SlackTimeStamp -> Event
   -- Parsing failing of an event
   UnknownEvent :: Value -> Event
   deriving (Show)
@@ -187,6 +188,7 @@ parseType o@(Object v) typ =
       "team_migration_started" -> pure TeamMigrationStarted
       "pin_added" -> pure PinAdded
       "pin_removed" -> pure PinRemoved
+      "desktop_notification" -> DesktopNotification <$> v .: "title" <*> v .: "subtitle" <*> v .: "channel" <*> v .: "event_ts"
       _ -> return $ UnknownEvent o
 parseType _ _ = error "Expecting object"
 
