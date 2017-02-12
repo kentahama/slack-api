@@ -9,6 +9,7 @@ module Web.Slack.WebAPI
       -- * Methods
     , rtm_start
     , chat_postMessage
+    , files_upload
     ) where
 
 import Control.Lens hiding ((??))
@@ -32,13 +33,15 @@ makeSlackCall
     :: (MonadError T.Text m, MonadIO m)
     => SlackConfig
     -> String
+    -> Maybe W.Part
     -> (W.Options -> W.Options)
     -> m Value
-makeSlackCall conf method setArgs = do
+makeSlackCall conf method postData setArgs = do
     let url = "https://slack.com/api/" ++ method
     let setToken = W.param "token" .~ [T.pack (conf ^. slackApiToken)]
     let opts = W.defaults & setToken & setArgs
-    rawResp <- liftIO $ W.getWith opts url
+    let request = maybe (W.getWith opts url) (W.postWith opts url) postData
+    rawResp <- liftIO request
     resp <- rawResp ^? W.responseBody . _Value ?? "Couldn't parse response"
     case resp ^? key "ok"  . _Bool of
         Just True  -> return resp
@@ -55,7 +58,7 @@ rtm_start
     => SlackConfig
     -> m (T.Text, SlackSession)
 rtm_start conf = do
-    resp <- makeSlackCall conf "rtm.start" id
+    resp <- makeSlackCall conf "rtm.start" Nothing id
     url <- resp ^? key "url" . _String ?? "rtm_start: No url!"
     sessionInfo <- fromJSON' resp
     return (url, sessionInfo)
@@ -68,11 +71,27 @@ chat_postMessage
     -> [Attachment]
     -> m ()
 chat_postMessage conf (Id cid) msg as =
-    void $ makeSlackCall conf "chat.postMessage" $
+    void $ makeSlackCall conf "chat.postMessage" Nothing $
         (W.param "channel"     .~ [cid]) .
         (W.param "text"        .~ [msg]) .
         (W.param "attachments" .~ [encode' as]) .
         (W.param "as_user"     .~ ["true"])
+
+files_upload
+    :: (MonadError T.Text m, MonadIO m)
+    => SlackConfig
+    -> ChannelId
+    -> FilePath
+    -> T.Text
+    -> m File
+files_upload conf (Id cid) path name = do
+    let file = W.partFile "file" path
+    resp <- makeSlackCall conf "files.upload" (Just file) $
+        (W.param "channels" .~ [cid]) .
+        (W.param "filename" .~ [name]) .
+        (W.param "as_user"  .~ ["true"])
+    fileInfo <- fromJSON' resp
+    return fileInfo
 
 -------------------------------------------------------------------------------
 -- Helpers
